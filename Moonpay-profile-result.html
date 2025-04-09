@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Moonpay profile result</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__html"><h1 id="moonpay-apk-profiling-result">Moonpay APK Profiling Result</h1>
+<h2 id="executive-summary">1. Executive Summary</h2>
+<p>This technical report presents a systematic performance analysis of the Moonpay Android application v2.0.1 , conducted using ADB, APK Analyzer, Flipper, and Android Studio Profiler. The investigation evaluated three critical user flows:</p>
+<ol>
+<li><strong>Application Startup</strong> - From launch to interactive home screen</li>
+<li><strong>Cryptocurrency Purchase Flow</strong> - BTC purchase transaction process</li>
+<li><strong>Settings/Preferences Flow</strong> - Navigation and interaction with application settings</li>
+</ol>
+<p>Performance metrics were captured across CPU utilization, memory consumption, frame rendering, and thread scheduling. The analysis reveals significant performance disparities between different flows in the application, with the cryptocurrency purchase flow exhibiting critical performance issues that substantially impair user experience during financial transactions.</p>
+<p>The most severe findings include UI thread blocking during cryptocurrency purchases, JavaScript execution overhead exceeding 1400% CPU utilization, and recurring framerate degradation across all flows. This report provides technically detailed recommendations for addressing these issues through native code migration, asynchronous architectures, and optimized state management.</p>
+<h2 id="methodology">2. Methodology</h2>
+<h3 id="testing-environment">2.1 Testing Environment</h3>
+<ul>
+<li><strong>Device</strong>: Google Pixel 6, Android 13</li>
+<li><strong>Application Version</strong>: Moonpay v1.3.2 (132)</li>
+<li><strong>Testing Tools</strong>:
+<ul>
+<li>Android Debug Bridge (ADB) v1.0.41</li>
+<li>Android Studio Profiler v2023.1.1</li>
+<li>Flipper v0.176.0</li>
+<li>APK Analyzer v2023.1.1</li>
+</ul>
+</li>
+</ul>
+<h3 id="test-procedures">2.2 Test Procedures</h3>
+<p>Performance metrics were captured using a systematic approach:</p>
+<ol>
+<li>Device was reset to a baseline state prior to each test</li>
+<li>Application was installed directly from Google Play Store</li>
+<li>All tests were executed with device in high-performance mode, stable WiFi connection (100Mbps)</li>
+<li>Each flow was tested 5 times, with results averaged to ensure consistency</li>
+<li>CPU, memory, and rendering metrics were captured simultaneously</li>
+<li>Thread activity was recorded and analyzed to identify contention patterns</li>
+</ol>
+<h3 id="measured-metrics">2.3 Measured Metrics</h3>
+<ul>
+<li><strong>CPU Usage</strong>: Total and per-thread CPU utilization</li>
+<li><strong>Memory (RAM) Consumption</strong>: Allocation patterns and growth over time</li>
+<li><strong>Frame Rendering</strong>: FPS (frames per second) and jank patterns</li>
+<li><strong>Thread Analysis</strong>: Thread scheduling, blocking, and utilization</li>
+<li><strong>Runtime</strong>: Total execution time for completing defined user flows</li>
+<li><strong>Performance Score</strong>: Calculated composite metric (scale: 0-100)</li>
+</ul>
+<h2 id="performance-results">3. Performance Results</h2>
+<h3 id="startup-flow">3.1 Startup Flow</h3>
+<p><strong>Performance Score</strong>: 13/100</p>
+
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Value</th>
+<th>Interpretation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Average Test Runtime</td>
+<td>9000ms</td>
+<td>Significantly exceeds recommended 3000ms target</td>
+</tr>
+<tr>
+<td>Average FPS</td>
+<td>50.7</td>
+<td>Below optimal 60 FPS target</td>
+</tr>
+<tr>
+<td>Average CPU Usage</td>
+<td>151.6%</td>
+<td>Exceeds single-core capacity</td>
+</tr>
+<tr>
+<td>Average RAM Usage</td>
+<td>312.7MB</td>
+<td>Moderate consumption</td>
+</tr>
+<tr>
+<td>High CPU Processes</td>
+<td>mqt_js (7.5s)</td>
+<td>JavaScript execution dominates CPU time</td>
+</tr>
+</tbody>
+</table><h4 id="startup-cpu-analysis">3.1.1 Startup CPU Analysis</h4>
+<p>CPU utilization during startup shows distinct phases:</p>
+<ol>
+<li><strong>Initial Loading (0-3400ms)</strong>: Baseline CPU usage around 108%</li>
+<li><strong>Spike Phase (3400-5100ms)</strong>: Dramatic increase to ~270%</li>
+<li><strong>Recovery Phase (5100-9000ms)</strong>: Gradual reduction with oscillations</li>
+</ol>
+<p>The mqt_js thread consistently consumed 100% of a single core during initialization, indicating that JavaScript execution is a primary bottleneck.<br>
+<a href="https://postimg.cc/CZBBFdk6">preview.webp</a></p>
+<h4 id="startup-frame-rendering">3.1.2 Startup Frame Rendering</h4>
+<p>Frame rendering exhibited significant degradation:</p>
+<ul>
+<li>Initial stable performance at ~58 FPS (0-3400ms)</li>
+<li>Sharp decline to 17 FPS during high CPU consumption period (3400-5100ms)</li>
+<li>Gradual recovery to ~52-56 FPS by completion</li>
+</ul>
+<p>This pattern directly correlates with CPU spikes, confirming that excessive computation blocks the UI thread.<br>
+<a href="https://postimg.cc/ZCR04Vk5">frame-startup.webp</a></p>
+<h4 id="startup-memory-profile">3.1.3 Startup Memory Profile</h4>
+<p>Memory allocation during startup followed a concerning pattern:</p>
+<ul>
+<li>Initial allocation: ~270MB</li>
+<li>Step increase at 3400ms (coinciding with CPU spike)</li>
+<li>Continuous growth without plateauing</li>
+<li>Final stabilization at ~360MB</li>
+</ul>
+<p>The correlation between memory growth and CPU spikes suggests inefficient resource initialization.<br>
+<a href="https://postimg.cc/v1pSHPSF">ram-startup.webp</a></p>
+<h3 id="cryptocurrency-purchase-flow">3.2 Cryptocurrency Purchase Flow</h3>
+<p><strong>Performance Score</strong>: Critically Low (Below measurable threshold)</p>
+
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Value</th>
+<th>Interpretation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CPU Usage Peaks</td>
+<td>1414.9%</td>
+<td>Severe multi-core saturation</td>
+</tr>
+<tr>
+<td>FPS Drops</td>
+<td>0-6 FPS</td>
+<td>Complete UI freezes</td>
+</tr>
+<tr>
+<td>RAM Usage</td>
+<td>409-511MB</td>
+<td>Significant consumption with growth pattern</td>
+</tr>
+<tr>
+<td>Thread Behavior</td>
+<td>Erratic</td>
+<td>Periods of 100% utilization followed by inactivity</td>
+</tr>
+</tbody>
+</table><h4 id="purchase-flow-cpu-analysis">3.2.1 Purchase Flow CPU Analysis</h4>
+<p>CPU utilization during cryptocurrency purchases exhibited extreme behavior:</p>
+<ul>
+<li>Catastrophic spikes reaching 1414.9% at ~36000ms and ~58800ms</li>
+<li>Secondary spikes of ~890% at ~66000ms and ~73500ms</li>
+<li>Elevated baseline between operations (100-300%)</li>
+<li>Sustained high CPU consumption between 29400-44100ms</li>
+</ul>
+<p>This pattern indicates severe processing overhead, likely from a combination of cryptographic operations, network synchronization, and JavaScript execution.<br>
+<a href="https://postimg.cc/V5xF2r0v">fps-cpu.webp</a></p>
+<h4 id="purchase-flow-frame-rendering">3.2.2 Purchase Flow Frame Rendering</h4>
+<p>Frame rendering exhibited critical failures:</p>
+<ul>
+<li>Multiple complete UI freezes (0 FPS) at timestamps ~14700ms, ~59000ms, and ~68000ms</li>
+<li>Extended periods below 20 FPS between 29400-44100ms</li>
+<li>High variability throughout the entire transaction flow (0-57 FPS)</li>
+<li>Even “stable” periods only reached 46 FPS</li>
+</ul>
+<p>These render failures represent a severely degraded user experience during critical financial operations.<br>
+<a href="https://postimg.cc/V5xF2r0v">fps-purchase.webp</a></p>
+<h4 id="purchase-flow-thread-analysis">3.2.3 Purchase Flow Thread Analysis</h4>
+<p>Thread execution patterns revealed significant coordination problems:</p>
+<ul>
+<li>Main thread repeatedly reaching 100% utilization</li>
+<li>Erratic transitions between maximum utilization and near-zero activity</li>
+<li>Thread utilization patterns suggesting synchronous blocking operations</li>
+<li>Poor distribution of work across available threads</li>
+</ul>
+<p>The execution pattern indicates architectural issues with thread management, particularly during network operations.</p>
+<h4 id="purchase-flow-memory-analysis">3.2.4 Purchase Flow Memory Analysis</h4>
+<p>Memory consumption exhibited concerning behavior:</p>
+<ul>
+<li>Starting baseline at ~409MB</li>
+<li>Peak consumption of ~511MB</li>
+<li>Irregular allocation/deallocation patterns</li>
+<li>Sustained elevated usage after operations completed</li>
+</ul>
+<p>This pattern suggests potential memory leaks and inefficient resource management during financial transactions.<br>
+<a href="https://postimg.cc/4Y2C6Qnn">ram-purchase.webp</a></p>
+<h3 id="settingspreferences-flow">3.3 Settings/Preferences Flow</h3>
+<p><strong>Performance Score</strong>: 69/100<br>
+<a href="https://postimg.cc/6yvT1cD2">score-settings.webp</a></p>
+
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Value</th>
+<th>Interpretation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Average Test Runtime</td>
+<td>46000ms</td>
+<td>Extended but less critical for settings</td>
+</tr>
+<tr>
+<td>Average FPS</td>
+<td>50.4</td>
+<td>Below optimal but generally acceptable</td>
+</tr>
+<tr>
+<td>Average CPU Usage</td>
+<td>98.3%</td>
+<td>Near single-core capacity</td>
+</tr>
+<tr>
+<td>Average RAM Usage</td>
+<td>464.7MB</td>
+<td>Moderate to high consumption</td>
+</tr>
+<tr>
+<td>High CPU Processes</td>
+<td>mqt_js (7.5s), UI Thread (0.5s), <a href="http://moonpay.com/">moonpay.com/</a>… (0.5s)</td>
+<td>Distribution across multiple processes</td>
+</tr>
+</tbody>
+</table><h4 id="settings-flow-cpu-analysis">3.3.1 Settings Flow CPU Analysis</h4>
+<p>CPU utilization during settings navigation showed improved behavior:</p>
+<ul>
+<li>Peak CPU usage of ~377% at ~27300ms</li>
+<li>Regular but moderate spikes between 150-300%</li>
+<li>Periods of low utilization (20-30%) between interactions</li>
+<li>Greater work distribution across multiple threads</li>
+</ul>
+<p>This pattern represents significantly better optimization compared to the purchase flow but still requires improvement.<br>
+<a href="https://postimg.cc/qtdmCmd8">cpu-settings.webp</a></p>
+<h4 id="settings-flow-frame-rendering">3.3.2 Settings Flow Frame Rendering</h4>
+<p>Frame rendering showed moderate issues:</p>
+<ul>
+<li>Generally stable at 51-57 FPS</li>
+<li>Periodic dips to 23-29 FPS approximately every 9000ms</li>
+<li>No complete UI freezes (unlike purchase flow)</li>
+<li>Several moderate drops to ~40 FPS during interactions</li>
+</ul>
+<p>This represents a significantly better user experience than the purchase flow but still falls short of optimal performance.</p>
+<h4 id="settings-flow-thread-analysis">3.3.3 Settings Flow Thread Analysis</h4>
+<p>Thread activity showed improved coordination:</p>
+<ul>
+<li>mqt_js thread continuing to spike to 100% but with better recovery</li>
+<li>UI Thread showing more consistent activity between 5-50%</li>
+<li><a href="http://moonpay.com">moonpay.com</a> thread spiking to 100% only during specific operations</li>
+<li>Better overall thread utilization patterns</li>
+</ul>
+<p>This suggests more optimal thread management in the settings flow compared to other areas of the application.<br>
+<a href="https://postimg.cc/xJVcQzMj">fps-settings.webp</a></p>
+<h4 id="settings-flow-memory-analysis">3.3.4 Settings Flow Memory Analysis</h4>
+<p>Memory consumption showed improved stability:</p>
+<ul>
+<li>Relatively consistent range between 447-497MB</li>
+<li>Absence of continuous growth pattern</li>
+<li>Evidence of garbage collection events</li>
+<li>No apparent memory leaks</li>
+</ul>
+<p>This represents better memory management compared to the purchase flow.</p>
+<h2 id="technical-analysis">4. Technical Analysis</h2>
+<h3 id="root-cause-analysis">4.1 Root Cause Analysis</h3>
+<h4 id="javascript-engine-overhead">4.1.1 JavaScript Engine Overhead</h4>
+<p>The mqt_js process dominates CPU consumption across all flows. The performance data reveals several critical issues with the JavaScript implementation:</p>
+<ol>
+<li><strong>Synchronous JavaScript Execution</strong>: Evidence of long-running JavaScript operations blocking the UI thread</li>
+<li><strong>Inefficient Bridge Communication</strong>: High CPU utilization during native-to-JavaScript communication</li>
+<li><strong>JavaScript Garbage Collection Impact</strong>: Correlation between memory spikes and frame drops suggests GC pauses</li>
+<li><strong>Unoptimized JavaScript Code</strong>: Excessive CPU consumption for relatively simple operations</li>
+</ol>
+<h4 id="thread-management-issues">4.1.2 Thread Management Issues</h4>
+<p>Thread analysis reveals fundamental architectural issues:</p>
+<ol>
+<li><strong>Main Thread Abuse</strong>: Critical operations running on the UI thread</li>
+<li><strong>Inadequate Thread Pooling</strong>: Poor distribution of work across available cores</li>
+<li><strong>Thread Starvation</strong>: Evidence of threads waiting for resources while others are overutilized</li>
+<li><strong>Synchronous Network Operations</strong>: Direct correlation between network activity and UI freezes</li>
+</ol>
+<h4 id="memory-management-deficiencies">4.1.3 Memory Management Deficiencies</h4>
+<p>Memory analysis identified several optimization opportunities:</p>
+<ol>
+<li><strong>Object Allocation Patterns</strong>: Excessive object creation during key operations</li>
+<li><strong>Memory Retention</strong>: Resources not being properly released between flows</li>
+<li><strong>Growth During Transactions</strong>: Continuous memory growth during financial operations</li>
+<li><strong>Image and Asset Management</strong>: Inefficient handling of visual resources</li>
+</ol>
+<h4 id="rendering-pipeline-issues">4.1.4 Rendering Pipeline Issues</h4>
+<p>Frame rendering analysis revealed:</p>
+<ol>
+<li><strong>Render Thread Blocking</strong>: UI updates stalling during computational work</li>
+<li><strong>Layout Thrashing</strong>: Evidence of repeated measure/layout operations</li>
+<li><strong>Inefficient UI Component Updates</strong>: Full redraws instead of incremental updates</li>
+<li><strong>Animation Framework Overhead</strong>: Performance degradation during animations</li>
+</ol>
+<h3 id="comparative-analysis">4.2 Comparative Analysis</h3>
+<p>The significant performance disparity between flows (scores of 13 vs 69) suggests inconsistent development practices and optimization approaches. Key insights:</p>
+<ol>
+<li><strong>Optimization Inconsistency</strong>: The settings flow demonstrates that significantly better performance is achievable within the current architecture</li>
+<li><strong>Critical Path Neglect</strong>: The most important flow (cryptocurrency purchase) exhibits the worst performance</li>
+<li><strong>Framework Limitations</strong>: Even the best-performing flow still falls short of industry standards, suggesting fundamental framework limitations</li>
+<li><strong>Progressive Degradation</strong>: Performance worsens with application complexity</li>
+</ol>
+<h3 id="technical-impact-assessment">4.3 Technical Impact Assessment</h3>
+<p>The observed performance issues have significant technical implications:</p>
+<ol>
+<li><strong>User Experience Degradation</strong>: Complete UI freezes during financial transactions erode user confidence</li>
+<li><strong>Transaction Reliability Concerns</strong>: UI freezes may cause users to retry operations, potentially creating duplicate transactions</li>
+<li><strong>Battery Consumption</strong>: Extreme CPU utilization (&gt;1400%) significantly impacts device battery life</li>
+<li><strong>Device Heating</strong>: Sustained high CPU utilization can cause thermal throttling</li>
+<li><strong>Memory Pressure</strong>: Growing memory consumption may trigger system-level garbage collection on lower-end devices</li>
+</ol>
+<h2 id="recommendations">5. Recommendations</h2>
+<h3 id="critical-path-optimization">5.1 Critical Path Optimization</h3>
+<p>The cryptocurrency purchase flow requires immediate architectural improvements:</p>
+<ol>
+<li><strong>Native Transaction Core</strong>: Rewrite the entire transaction processing pipeline in Kotlin, implementing a robust state machine architecture that handles all critical operations in native code.</li>
+</ol>
+<pre class=" language-kotlin"><code class="prism  language-kotlin"><span class="token comment">// Transaction state machine implementation</span>
+<span class="token keyword">class</span> TransactionStateMachine <span class="token punctuation">{</span>
+    <span class="token keyword">private</span> <span class="token keyword">val</span> _state <span class="token operator">=</span> MutableStateFlow<span class="token operator">&lt;</span>TransactionState<span class="token operator">&gt;</span><span class="token punctuation">(</span>TransactionState<span class="token punctuation">.</span>Idle<span class="token punctuation">)</span>
+    <span class="token keyword">val</span> state<span class="token operator">:</span> StateFlow<span class="token operator">&lt;</span>TransactionState<span class="token operator">&gt;</span> <span class="token operator">=</span> _state<span class="token punctuation">.</span><span class="token function">asStateFlow</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+
+    <span class="token keyword">private</span> <span class="token keyword">val</span> networkExecutor <span class="token operator">=</span> Executors<span class="token punctuation">.</span><span class="token function">newFixedThreadPool</span><span class="token punctuation">(</span><span class="token number">2</span><span class="token punctuation">)</span>
+    <span class="token keyword">private</span> <span class="token keyword">val</span> computationExecutor <span class="token operator">=</span> Executors<span class="token punctuation">.</span><span class="token function">newFixedThreadPool</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span>
+
+    <span class="token keyword">fun</span> <span class="token function">startTransaction</span><span class="token punctuation">(</span>details<span class="token operator">:</span> TransactionDetails<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        _state<span class="token punctuation">.</span>value <span class="token operator">=</span> TransactionState<span class="token punctuation">.</span>Initializing
+
+        computationExecutor<span class="token punctuation">.</span><span class="token function">execute</span> <span class="token punctuation">{</span>
+            <span class="token keyword">try</span> <span class="token punctuation">{</span>
+                <span class="token comment">// Validation</span>
+                <span class="token keyword">val</span> validatedDetails <span class="token operator">=</span> <span class="token function">validateTransactionDetails</span><span class="token punctuation">(</span>details<span class="token punctuation">)</span>
+                _state<span class="token punctuation">.</span>value <span class="token operator">=</span> TransactionState<span class="token punctuation">.</span><span class="token function">Validated</span><span class="token punctuation">(</span>validatedDetails<span class="token punctuation">)</span>
+
+                <span class="token comment">// Fetch price data asynchronously</span>
+                networkExecutor<span class="token punctuation">.</span><span class="token function">execute</span> <span class="token punctuation">{</span>
+                    <span class="token keyword">try</span> <span class="token punctuation">{</span>
+                        <span class="token keyword">val</span> priceData <span class="token operator">=</span> <span class="token function">fetchPriceData</span><span class="token punctuation">(</span>validatedDetails<span class="token punctuation">.</span>cryptoCode<span class="token punctuation">)</span>
+                        _state<span class="token punctuation">.</span>value <span class="token operator">=</span> TransactionState<span class="token punctuation">.</span><span class="token function">PriceFetched</span><span class="token punctuation">(</span>validatedDetails<span class="token punctuation">,</span> priceData<span class="token punctuation">)</span>
+
+                        <span class="token comment">// Continue with transaction processing...</span>
+                    <span class="token punctuation">}</span> <span class="token keyword">catch</span> <span class="token punctuation">(</span>e<span class="token operator">:</span> Exception<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+                        _state<span class="token punctuation">.</span>value <span class="token operator">=</span> TransactionState<span class="token punctuation">.</span><span class="token function">Error</span><span class="token punctuation">(</span>e<span class="token punctuation">.</span>message <span class="token operator">?:</span> <span class="token string">"Unknown error"</span><span class="token punctuation">)</span>
+                    <span class="token punctuation">}</span>
+                <span class="token punctuation">}</span>
+            <span class="token punctuation">}</span> <span class="token keyword">catch</span> <span class="token punctuation">(</span>e<span class="token operator">:</span> Exception<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+                _state<span class="token punctuation">.</span>value <span class="token operator">=</span> TransactionState<span class="token punctuation">.</span><span class="token function">Error</span><span class="token punctuation">(</span>e<span class="token punctuation">.</span>message <span class="token operator">?:</span> <span class="token string">"Validation error"</span><span class="token punctuation">)</span>
+            <span class="token punctuation">}</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token comment">// Additional state machine methods...</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<ol start="2">
+<li><strong>Asynchronous Network Architecture</strong>: Implement a dedicated network module with proper request prioritization, caching, and error handling.</li>
+</ol>
+<pre class=" language-kotlin"><code class="prism  language-kotlin"><span class="token keyword">class</span> <span class="token function">CryptoNetworkModule</span><span class="token punctuation">(</span>context<span class="token operator">:</span> Context<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">private</span> <span class="token keyword">val</span> client <span class="token operator">=</span> OkHttpClient<span class="token punctuation">.</span><span class="token function">Builder</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">connectTimeout</span><span class="token punctuation">(</span><span class="token number">15</span><span class="token punctuation">,</span> TimeUnit<span class="token punctuation">.</span>SECONDS<span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">readTimeout</span><span class="token punctuation">(</span><span class="token number">15</span><span class="token punctuation">,</span> TimeUnit<span class="token punctuation">.</span>SECONDS<span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">writeTimeout</span><span class="token punctuation">(</span><span class="token number">15</span><span class="token punctuation">,</span> TimeUnit<span class="token punctuation">.</span>SECONDS<span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">addInterceptor</span><span class="token punctuation">(</span><span class="token function">HttpLoggingInterceptor</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">apply</span> <span class="token punctuation">{</span>
+            level <span class="token operator">=</span> HttpLoggingInterceptor<span class="token punctuation">.</span>Level<span class="token punctuation">.</span>BASIC
+        <span class="token punctuation">}</span><span class="token punctuation">)</span>
+        <span class="token punctuation">.</span><span class="token function">build</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+
+    <span class="token keyword">private</span> <span class="token keyword">val</span> gson <span class="token operator">=</span> <span class="token function">Gson</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+    <span class="token keyword">private</span> <span class="token keyword">val</span> priceCache <span class="token operator">=</span> ConcurrentHashMap<span class="token operator">&lt;</span>String<span class="token punctuation">,</span> CachedPrice<span class="token operator">&gt;</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+
+    <span class="token keyword">fun</span> <span class="token function">fetchPrice</span><span class="token punctuation">(</span>cryptoCode<span class="token operator">:</span> String<span class="token punctuation">)</span><span class="token operator">:</span> Flow<span class="token operator">&lt;</span>Result<span class="token operator">&lt;</span>PriceData<span class="token operator">&gt;</span><span class="token operator">&gt;</span> <span class="token operator">=</span> flow <span class="token punctuation">{</span>
+        <span class="token comment">// Check cache first</span>
+        priceCache<span class="token punctuation">[</span>cryptoCode<span class="token punctuation">]</span><span class="token operator">?</span><span class="token punctuation">.</span><span class="token function">let</span> <span class="token punctuation">{</span>
+            <span class="token keyword">if</span> <span class="token punctuation">(</span>it<span class="token punctuation">.</span>timestamp <span class="token operator">&gt;</span> System<span class="token punctuation">.</span><span class="token function">currentTimeMillis</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">-</span> CACHE_DURATION<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+                <span class="token function">emit</span><span class="token punctuation">(</span>Result<span class="token punctuation">.</span><span class="token function">success</span><span class="token punctuation">(</span>it<span class="token punctuation">.</span>data<span class="token punctuation">)</span><span class="token punctuation">)</span>
+                <span class="token keyword">return</span><span class="token label symbol">@flow</span>
+            <span class="token punctuation">}</span>
+        <span class="token punctuation">}</span>
+
+        <span class="token comment">// Make network request</span>
+        <span class="token keyword">try</span> <span class="token punctuation">{</span>
+            <span class="token keyword">val</span> request <span class="token operator">=</span> Request<span class="token punctuation">.</span><span class="token function">Builder</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+                <span class="token punctuation">.</span><span class="token function">url</span><span class="token punctuation">(</span><span class="token string">"https://api.moonpay.com/v1/prices/<span class="token interpolation variable">$cryptoCode</span>"</span><span class="token punctuation">)</span>
+                <span class="token punctuation">.</span><span class="token function">build</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+
+            <span class="token keyword">val</span> response <span class="token operator">=</span> client<span class="token punctuation">.</span><span class="token function">newCall</span><span class="token punctuation">(</span>request<span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">execute</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+            <span class="token keyword">if</span> <span class="token punctuation">(</span>response<span class="token punctuation">.</span>isSuccessful<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+                <span class="token keyword">val</span> priceData <span class="token operator">=</span> gson<span class="token punctuation">.</span><span class="token function">fromJson</span><span class="token punctuation">(</span>response<span class="token punctuation">.</span>body<span class="token operator">?</span><span class="token punctuation">.</span><span class="token function">string</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> PriceData<span class="token operator">::</span><span class="token keyword">class</span><span class="token punctuation">.</span>java<span class="token punctuation">)</span>
+
+                <span class="token comment">// Update cache</span>
+                priceCache<span class="token punctuation">[</span>cryptoCode<span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token function">CachedPrice</span><span class="token punctuation">(</span>priceData<span class="token punctuation">,</span> System<span class="token punctuation">.</span><span class="token function">currentTimeMillis</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+
+                <span class="token function">emit</span><span class="token punctuation">(</span>Result<span class="token punctuation">.</span><span class="token function">success</span><span class="token punctuation">(</span>priceData<span class="token punctuation">)</span><span class="token punctuation">)</span>
+            <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+                <span class="token function">emit</span><span class="token punctuation">(</span>Result<span class="token punctuation">.</span><span class="token function">failure</span><span class="token punctuation">(</span><span class="token function">IOException</span><span class="token punctuation">(</span><span class="token string">"Error: <span class="token interpolation"><span class="token delimiter variable">${</span>response<span class="token punctuation">.</span>code<span class="token delimiter variable">}</span></span>"</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+            <span class="token punctuation">}</span>
+        <span class="token punctuation">}</span> <span class="token keyword">catch</span> <span class="token punctuation">(</span>e<span class="token operator">:</span> Exception<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token function">emit</span><span class="token punctuation">(</span>Result<span class="token punctuation">.</span><span class="token function">failure</span><span class="token punctuation">(</span>e<span class="token punctuation">)</span><span class="token punctuation">)</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">companion</span> <span class="token keyword">object</span> <span class="token punctuation">{</span>
+        <span class="token keyword">private</span> <span class="token keyword">const</span> <span class="token keyword">val</span> CACHE_DURATION <span class="token operator">=</span> 30_000L <span class="token comment">// 30 seconds</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<ol start="3">
+<li><strong>Progressive Transaction UI</strong>: Redesign the purchase UI to follow a state-based progressive loading pattern.</li>
+</ol>
+<pre class=" language-typescript"><code class="prism  language-typescript"><span class="token comment">// TypeScript React component with state-based rendering</span>
+<span class="token keyword">interface</span> <span class="token class-name">TransactionState</span> <span class="token punctuation">{</span>
+  status<span class="token punctuation">:</span>
+    <span class="token operator">|</span> <span class="token string">"idle"</span>
+    <span class="token operator">|</span> <span class="token string">"initializing"</span>
+    <span class="token operator">|</span> <span class="token string">"validating"</span>
+    <span class="token operator">|</span> <span class="token string">"fetching_price"</span>
+    <span class="token operator">|</span> <span class="token string">"confirming"</span>
+    <span class="token operator">|</span> <span class="token string">"processing"</span>
+    <span class="token operator">|</span> <span class="token string">"success"</span>
+    <span class="token operator">|</span> <span class="token string">"error"</span><span class="token punctuation">;</span>
+  data<span class="token operator">?</span><span class="token punctuation">:</span> <span class="token keyword">any</span><span class="token punctuation">;</span>
+  error<span class="token operator">?</span><span class="token punctuation">:</span> <span class="token keyword">string</span><span class="token punctuation">;</span>
+  progress<span class="token punctuation">:</span> <span class="token keyword">number</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">const</span> CryptoPurchaseScreen<span class="token punctuation">:</span> React<span class="token punctuation">.</span><span class="token function-variable function">FC</span> <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=&gt;</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> <span class="token punctuation">[</span>state<span class="token punctuation">,</span> setState<span class="token punctuation">]</span> <span class="token operator">=</span> useState<span class="token operator">&lt;</span>TransactionState<span class="token operator">&gt;</span><span class="token punctuation">(</span><span class="token punctuation">{</span>
+    status<span class="token punctuation">:</span> <span class="token string">"idle"</span><span class="token punctuation">,</span>
+    progress<span class="token punctuation">:</span> <span class="token number">0</span><span class="token punctuation">,</span>
+  <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Connect to native transaction module and listen for state updates</span>
+  <span class="token function">useEffect</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=&gt;</span> <span class="token punctuation">{</span>
+    <span class="token keyword">const</span> subscription <span class="token operator">=</span>
+      NativeModules<span class="token punctuation">.</span>TransactionModule<span class="token punctuation">.</span><span class="token function">getStateUpdates</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">subscribe</span><span class="token punctuation">(</span>
+        <span class="token punctuation">(</span>newState<span class="token punctuation">:</span> TransactionState<span class="token punctuation">)</span> <span class="token operator">=&gt;</span> <span class="token punctuation">{</span>
+          <span class="token function">setState</span><span class="token punctuation">(</span>newState<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+      <span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token keyword">return</span> <span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=&gt;</span> subscription<span class="token punctuation">.</span><span class="token function">unsubscribe</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span><span class="token punctuation">,</span> <span class="token punctuation">[</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+  <span class="token comment">// Render different components based on transaction state</span>
+  <span class="token keyword">const</span> <span class="token function-variable function">renderContent</span> <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=&gt;</span> <span class="token punctuation">{</span>
+    <span class="token keyword">switch</span> <span class="token punctuation">(</span>state<span class="token punctuation">.</span>status<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">case</span> <span class="token string">"idle"</span><span class="token punctuation">:</span>
+        <span class="token keyword">return</span> <span class="token operator">&lt;</span>PurchaseForm onSubmit<span class="token operator">=</span><span class="token punctuation">{</span>handleSubmit<span class="token punctuation">}</span> <span class="token operator">/</span><span class="token operator">&gt;</span><span class="token punctuation">;</span>
+
+      <span class="token keyword">case</span> <span class="token string">"initializing"</span><span class="token punctuation">:</span>
+      <span class="token keyword">case</span> <span class="token string">"validating"</span><span class="token punctuation">:</span>
+      <span class="token keyword">case</span> <span class="token string">"fetching_price"</span><span class="token punctuation">:</span>
+      <span class="token keyword">case</span> <span class="token string">"confirming"</span><span class="token punctuation">:</span>
+      <span class="token keyword">case</span> <span class="token string">"processing"</span><span class="token punctuation">:</span>
+        <span class="token keyword">return</span> <span class="token punctuation">(</span>
+          <span class="token operator">&lt;</span>TransactionProgress
+            status<span class="token operator">=</span><span class="token punctuation">{</span>state<span class="token punctuation">.</span>status<span class="token punctuation">}</span>
+            progress<span class="token operator">=</span><span class="token punctuation">{</span>state<span class="token punctuation">.</span>progress<span class="token punctuation">}</span>
+          <span class="token operator">/</span><span class="token operator">&gt;</span>
+        <span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+      <span class="token keyword">case</span> <span class="token string">"success"</span><span class="token punctuation">:</span>
+        <span class="token keyword">return</span> <span class="token operator">&lt;</span>TransactionSuccess data<span class="token operator">=</span><span class="token punctuation">{</span>state<span class="token punctuation">.</span>data<span class="token punctuation">}</span> <span class="token operator">/</span><span class="token operator">&gt;</span><span class="token punctuation">;</span>
+
+      <span class="token keyword">case</span> <span class="token string">"error"</span><span class="token punctuation">:</span>
+        <span class="token keyword">return</span> <span class="token punctuation">(</span>
+          <span class="token operator">&lt;</span>TransactionError error<span class="token operator">=</span><span class="token punctuation">{</span>state<span class="token punctuation">.</span>error<span class="token punctuation">}</span> onRetry<span class="token operator">=</span><span class="token punctuation">{</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=&gt;</span> <span class="token function">handleRetry</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">}</span> <span class="token operator">/</span><span class="token operator">&gt;</span>
+        <span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+  <span class="token keyword">return</span> <span class="token punctuation">(</span>
+    <span class="token operator">&lt;</span>SafeArea<span class="token operator">&gt;</span>
+      <span class="token operator">&lt;</span>View style<span class="token operator">=</span><span class="token punctuation">{</span>styles<span class="token punctuation">.</span>container<span class="token punctuation">}</span><span class="token operator">&gt;</span><span class="token punctuation">{</span><span class="token function">renderContent</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">}</span><span class="token operator">&lt;</span><span class="token operator">/</span>View<span class="token operator">&gt;</span>
+    <span class="token operator">&lt;</span><span class="token operator">/</span>SafeArea<span class="token operator">&gt;</span>
+  <span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
+<ol start="4">
+<li><strong>Memory Pooling Implementation</strong>: Create object pools for frequently used transaction objects to reduce allocation and GC pressure.</li>
+</ol>
+<pre class=" language-kotlin"><code class="prism  language-kotlin"><span class="token comment">// Object pooling implementation for transaction components</span>
+<span class="token keyword">class</span> TransactionObjectPool <span class="token punctuation">{</span>
+    <span class="token keyword">private</span> <span class="token keyword">val</span> priceDataPool <span class="token operator">=</span> ConcurrentLinkedQueue<span class="token operator">&lt;</span>PriceData<span class="token operator">&gt;</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+    <span class="token keyword">private</span> <span class="token keyword">val</span> transactionDetailPool <span class="token operator">=</span> ConcurrentLinkedQueue<span class="token operator">&lt;</span>TransactionDetail<span class="token operator">&gt;</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+
+    <span class="token keyword">init</span> <span class="token punctuation">{</span>
+        <span class="token comment">// Pre-allocate objects</span>
+        <span class="token function">repeat</span><span class="token punctuation">(</span><span class="token number">10</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            priceDataPool<span class="token punctuation">.</span><span class="token function">add</span><span class="token punctuation">(</span><span class="token function">PriceData</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+            transactionDetailPool<span class="token punctuation">.</span><span class="token function">add</span><span class="token punctuation">(</span><span class="token function">TransactionDetail</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">fun</span> <span class="token function">acquirePriceData</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">:</span> PriceData <span class="token punctuation">{</span>
+        <span class="token keyword">return</span> priceDataPool<span class="token punctuation">.</span><span class="token function">poll</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">?:</span> <span class="token function">PriceData</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">fun</span> <span class="token function">releasePriceData</span><span class="token punctuation">(</span>priceData<span class="token operator">:</span> PriceData<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        priceData<span class="token punctuation">.</span><span class="token function">reset</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+        <span class="token keyword">if</span> <span class="token punctuation">(</span>priceDataPool<span class="token punctuation">.</span>size <span class="token operator">&lt;</span> MAX_POOL_SIZE<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            priceDataPool<span class="token punctuation">.</span><span class="token function">add</span><span class="token punctuation">(</span>priceData<span class="token punctuation">)</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">fun</span> <span class="token function">acquireTransactionDetail</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">:</span> TransactionDetail <span class="token punctuation">{</span>
+        <span class="token keyword">return</span> transactionDetailPool<span class="token punctuation">.</span><span class="token function">poll</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">?:</span> <span class="token function">TransactionDetail</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">fun</span> <span class="token function">releaseTransactionDetail</span><span class="token punctuation">(</span>detail<span class="token operator">:</span> TransactionDetail<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        detail<span class="token punctuation">.</span><span class="token function">reset</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+        <span class="token keyword">if</span> <span class="token punctuation">(</span>transactionDetailPool<span class="token punctuation">.</span>size <span class="token operator">&lt;</span> MAX_POOL_SIZE<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            transactionDetailPool<span class="token punctuation">.</span><span class="token function">add</span><span class="token punctuation">(</span>detail<span class="token punctuation">)</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">companion</span> <span class="token keyword">object</span> <span class="token punctuation">{</span>
+        <span class="token keyword">private</span> <span class="token keyword">const</span> <span class="token keyword">val</span> MAX_POOL_SIZE <span class="token operator">=</span> <span class="token number">20</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<ol start="5">
+<li><strong>Performance Monitoring</strong>: Implement real-time performance tracking specifically for transaction flows.</li>
+</ol>
+<pre class=" language-kotlin"><code class="prism  language-kotlin"><span class="token comment">// Performance monitoring for transaction flows</span>
+<span class="token keyword">class</span> TransactionPerformanceMonitor <span class="token punctuation">{</span>
+    <span class="token keyword">private</span> <span class="token keyword">val</span> frameTimeHistory <span class="token operator">=</span> LinkedList<span class="token operator">&lt;</span>Long<span class="token operator">&gt;</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+    <span class="token keyword">private</span> <span class="token keyword">val</span> cpuUsageHistory <span class="token operator">=</span> LinkedList<span class="token operator">&lt;</span>Float<span class="token operator">&gt;</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+    <span class="token keyword">private</span> <span class="token keyword">val</span> memoryUsageHistory <span class="token operator">=</span> LinkedList<span class="token operator">&lt;</span>Long<span class="token operator">&gt;</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+
+    <span class="token keyword">private</span> <span class="token keyword">var</span> monitoringActive <span class="token operator">=</span> <span class="token boolean">false</span>
+    <span class="token keyword">private</span> <span class="token keyword">var</span> startTime <span class="token operator">=</span> <span class="token number">0L</span>
+    <span class="token keyword">private</span> <span class="token keyword">val</span> handler <span class="token operator">=</span> <span class="token function">Handler</span><span class="token punctuation">(</span>Looper<span class="token punctuation">.</span><span class="token function">getMainLooper</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+    <span class="token keyword">private</span> <span class="token keyword">val</span> choreographer <span class="token operator">=</span> Choreographer<span class="token punctuation">.</span><span class="token function">getInstance</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+
+    <span class="token keyword">fun</span> <span class="token function">startMonitoring</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">if</span> <span class="token punctuation">(</span>monitoringActive<span class="token punctuation">)</span> <span class="token keyword">return</span>
+
+        monitoringActive <span class="token operator">=</span> <span class="token boolean">true</span>
+        startTime <span class="token operator">=</span> SystemClock<span class="token punctuation">.</span><span class="token function">elapsedRealtime</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+        frameTimeHistory<span class="token punctuation">.</span><span class="token function">clear</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+        cpuUsageHistory<span class="token punctuation">.</span><span class="token function">clear</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+        memoryUsageHistory<span class="token punctuation">.</span><span class="token function">clear</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+
+        <span class="token comment">// Monitor frame timing</span>
+        choreographer<span class="token punctuation">.</span><span class="token function">postFrameCallback</span><span class="token punctuation">(</span>frameCallback<span class="token punctuation">)</span>
+
+        <span class="token comment">// Sample CPU and memory every 100ms</span>
+        handler<span class="token punctuation">.</span><span class="token function">postDelayed</span><span class="token punctuation">(</span>samplingRunnable<span class="token punctuation">,</span> <span class="token number">100</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">fun</span> <span class="token function">stopMonitoring</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">:</span> PerformanceReport <span class="token punctuation">{</span>
+        monitoringActive <span class="token operator">=</span> <span class="token boolean">false</span>
+        handler<span class="token punctuation">.</span><span class="token function">removeCallbacks</span><span class="token punctuation">(</span>samplingRunnable<span class="token punctuation">)</span>
+
+        <span class="token keyword">val</span> duration <span class="token operator">=</span> SystemClock<span class="token punctuation">.</span><span class="token function">elapsedRealtime</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">-</span> startTime
+
+        <span class="token comment">// Calculate performance metrics</span>
+        <span class="token keyword">val</span> avgFps <span class="token operator">=</span> <span class="token function">calculateAverageFps</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+        <span class="token keyword">val</span> avgCpuUsage <span class="token operator">=</span> cpuUsageHistory<span class="token punctuation">.</span><span class="token function">average</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+        <span class="token keyword">val</span> maxCpuUsage <span class="token operator">=</span> cpuUsageHistory<span class="token punctuation">.</span><span class="token function">maxOrNull</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">?:</span> <span class="token number">0f</span>
+        <span class="token keyword">val</span> peakMemory <span class="token operator">=</span> memoryUsageHistory<span class="token punctuation">.</span><span class="token function">maxOrNull</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">?:</span> <span class="token number">0L</span>
+
+        <span class="token keyword">return</span> <span class="token function">PerformanceReport</span><span class="token punctuation">(</span>
+            durationMs <span class="token operator">=</span> duration<span class="token punctuation">,</span>
+            averageFps <span class="token operator">=</span> avgFps<span class="token punctuation">,</span>
+            droppedFrames <span class="token operator">=</span> <span class="token function">calculateDroppedFrames</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+            averageCpuUsage <span class="token operator">=</span> avgCpuUsage<span class="token punctuation">,</span>
+            peakCpuUsage <span class="token operator">=</span> maxCpuUsage<span class="token punctuation">,</span>
+            peakMemoryUsage <span class="token operator">=</span> peakMemory
+        <span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">private</span> <span class="token keyword">val</span> frameCallback <span class="token operator">=</span> <span class="token keyword">object</span> <span class="token operator">:</span> Choreographer<span class="token punctuation">.</span><span class="token function">FrameCallback</span> <span class="token punctuation">{</span>
+        <span class="token keyword">private</span> <span class="token keyword">var</span> lastFrameTime <span class="token operator">=</span> <span class="token number">0L</span>
+
+        <span class="token keyword">override</span> <span class="token keyword">fun</span> <span class="token function">doFrame</span><span class="token punctuation">(</span>frameTimeNanos<span class="token operator">:</span> Long<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>monitoringActive<span class="token punctuation">)</span> <span class="token keyword">return</span>
+
+            <span class="token keyword">if</span> <span class="token punctuation">(</span>lastFrameTime <span class="token operator">&gt;</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+                <span class="token keyword">val</span> deltaMs <span class="token operator">=</span> TimeUnit<span class="token punctuation">.</span>NANOSECONDS<span class="token punctuation">.</span><span class="token function">toMillis</span><span class="token punctuation">(</span>frameTimeNanos <span class="token operator">-</span> lastFrameTime<span class="token punctuation">)</span>
+                frameTimeHistory<span class="token punctuation">.</span><span class="token function">add</span><span class="token punctuation">(</span>deltaMs<span class="token punctuation">)</span>
+
+                <span class="token comment">// Keep a reasonable history size</span>
+                <span class="token keyword">if</span> <span class="token punctuation">(</span>frameTimeHistory<span class="token punctuation">.</span>size <span class="token operator">&gt;</span> <span class="token number">300</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+                    frameTimeHistory<span class="token punctuation">.</span><span class="token function">removeFirst</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+                <span class="token punctuation">}</span>
+            <span class="token punctuation">}</span>
+
+            lastFrameTime <span class="token operator">=</span> frameTimeNanos
+            choreographer<span class="token punctuation">.</span><span class="token function">postFrameCallback</span><span class="token punctuation">(</span><span class="token keyword">this</span><span class="token punctuation">)</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">private</span> <span class="token keyword">val</span> samplingRunnable <span class="token operator">=</span> <span class="token keyword">object</span> <span class="token operator">:</span> Runnable <span class="token punctuation">{</span>
+        <span class="token keyword">override</span> <span class="token keyword">fun</span> <span class="token function">run</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>monitoringActive<span class="token punctuation">)</span> <span class="token keyword">return</span>
+
+            <span class="token comment">// Sample CPU usage</span>
+            <span class="token keyword">val</span> cpuUsage <span class="token operator">=</span> <span class="token function">getCurrentCpuUsage</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+            cpuUsageHistory<span class="token punctuation">.</span><span class="token function">add</span><span class="token punctuation">(</span>cpuUsage<span class="token punctuation">)</span>
+
+            <span class="token comment">// Sample memory usage</span>
+            <span class="token keyword">val</span> memoryUsage <span class="token operator">=</span> <span class="token function">getCurrentMemoryUsage</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+            memoryUsageHistory<span class="token punctuation">.</span><span class="token function">add</span><span class="token punctuation">(</span>memoryUsage<span class="token punctuation">)</span>
+
+            <span class="token comment">// Keep reasonable history size</span>
+            <span class="token keyword">if</span> <span class="token punctuation">(</span>cpuUsageHistory<span class="token punctuation">.</span>size <span class="token operator">&gt;</span> <span class="token number">300</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+                cpuUsageHistory<span class="token punctuation">.</span><span class="token function">removeFirst</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+            <span class="token punctuation">}</span>
+
+            <span class="token keyword">if</span> <span class="token punctuation">(</span>memoryUsageHistory<span class="token punctuation">.</span>size <span class="token operator">&gt;</span> <span class="token number">300</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+                memoryUsageHistory<span class="token punctuation">.</span><span class="token function">removeFirst</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+            <span class="token punctuation">}</span>
+
+            handler<span class="token punctuation">.</span><span class="token function">postDelayed</span><span class="token punctuation">(</span><span class="token keyword">this</span><span class="token punctuation">,</span> <span class="token number">100</span><span class="token punctuation">)</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token comment">// Implementation details for metric calculations...</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3 id="startup-optimization">5.2 Startup Optimization</h3>
+<p>The application startup flow requires significant improvement:</p>
+<ol>
+<li><strong>Native Splash Screen Implementation</strong>: Replace JavaScript-based splash screen with native implementation.</li>
+</ol>
+<pre class=" language-kotlin"><code class="prism  language-kotlin"><span class="token comment">// Activity implementation with native splash handling</span>
+<span class="token keyword">class</span> SplashActivity <span class="token operator">:</span> <span class="token function">AppCompatActivity</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">override</span> <span class="token keyword">fun</span> <span class="token function">onCreate</span><span class="token punctuation">(</span>savedInstanceState<span class="token operator">:</span> Bundle<span class="token operator">?</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">super</span><span class="token punctuation">.</span><span class="token function">onCreate</span><span class="token punctuation">(</span>savedInstanceState<span class="token punctuation">)</span>
+        <span class="token function">setContentView</span><span class="token punctuation">(</span>R<span class="token punctuation">.</span>layout<span class="token punctuation">.</span>activity_splash<span class="token punctuation">)</span>
+
+        <span class="token comment">// Initialize critical components in background</span>
+        Thread <span class="token punctuation">{</span>
+            <span class="token keyword">try</span> <span class="token punctuation">{</span>
+                <span class="token comment">// Perform initialization</span>
+                <span class="token function">initializeCore</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+
+                <span class="token comment">// Transition to main activity</span>
+                runOnUiThread <span class="token punctuation">{</span>
+                    <span class="token function">startActivity</span><span class="token punctuation">(</span><span class="token function">Intent</span><span class="token punctuation">(</span><span class="token keyword">this</span><span class="token punctuation">,</span> MainActivity<span class="token operator">::</span><span class="token keyword">class</span><span class="token punctuation">.</span>java<span class="token punctuation">)</span><span class="token punctuation">)</span>
+                    <span class="token function">overridePendingTransition</span><span class="token punctuation">(</span>R<span class="token punctuation">.</span>anim<span class="token punctuation">.</span>fade_in<span class="token punctuation">,</span> R<span class="token punctuation">.</span>anim<span class="token punctuation">.</span>fade_out<span class="token punctuation">)</span>
+                    <span class="token function">finish</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+                <span class="token punctuation">}</span>
+            <span class="token punctuation">}</span> <span class="token keyword">catch</span> <span class="token punctuation">(</span>e<span class="token operator">:</span> Exception<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+                Log<span class="token punctuation">.</span><span class="token function">e</span><span class="token punctuation">(</span>TAG<span class="token punctuation">,</span> <span class="token string">"Error during initialization"</span><span class="token punctuation">,</span> e<span class="token punctuation">)</span>
+
+                <span class="token comment">// Show error UI</span>
+                runOnUiThread <span class="token punctuation">{</span>
+                    <span class="token function">showErrorState</span><span class="token punctuation">(</span>e<span class="token punctuation">)</span>
+                <span class="token punctuation">}</span>
+            <span class="token punctuation">}</span>
+        <span class="token punctuation">}</span><span class="token punctuation">.</span><span class="token function">start</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">private</span> <span class="token keyword">fun</span> <span class="token function">initializeCore</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token comment">// Initialize core components sequentially</span>
+        AppInitializer<span class="token punctuation">.</span><span class="token function">getInstance</span><span class="token punctuation">(</span><span class="token keyword">this</span><span class="token punctuation">)</span>
+            <span class="token punctuation">.</span><span class="token function">initializeComponent</span><span class="token punctuation">(</span>WorkManagerInitializer<span class="token operator">::</span><span class="token keyword">class</span><span class="token punctuation">.</span>java<span class="token punctuation">)</span>
+
+        <span class="token comment">// Initialize app dependencies</span>
+        ServiceLocator<span class="token punctuation">.</span><span class="token function">init</span><span class="token punctuation">(</span><span class="token keyword">this</span><span class="token punctuation">)</span>
+
+        <span class="token comment">// Pre-warm key caches</span>
+        ServiceLocator<span class="token punctuation">.</span><span class="token function">getCryptoManager</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">preWarmCache</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">companion</span> <span class="token keyword">object</span> <span class="token punctuation">{</span>
+        <span class="token keyword">private</span> <span class="token keyword">const</span> <span class="token keyword">val</span> TAG <span class="token operator">=</span> <span class="token string">"SplashActivity"</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<ol start="2">
+<li><strong>Deferred Module Loading</strong>: Implement a module loading system that prioritizes UI responsiveness.</li>
+</ol>
+<pre class=" language-kotlin"><code class="prism  language-kotlin"><span class="token comment">// Module loading manager</span>
+<span class="token keyword">class</span> <span class="token function">ModuleManager</span><span class="token punctuation">(</span><span class="token keyword">private</span> <span class="token keyword">val</span> context<span class="token operator">:</span> Context<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">private</span> <span class="token keyword">val</span> loadedModules <span class="token operator">=</span> ConcurrentHashMap<span class="token operator">&lt;</span>String<span class="token punctuation">,</span> Module<span class="token operator">&gt;</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+    <span class="token keyword">private</span> <span class="token keyword">val</span> loadingExecutor <span class="token operator">=</span> Executors<span class="token punctuation">.</span><span class="token function">newFixedThreadPool</span><span class="token punctuation">(</span><span class="token number">2</span><span class="token punctuation">)</span>
+
+    <span class="token keyword">fun</span> <span class="token function">loadCriticalModules</span><span class="token punctuation">(</span>callback<span class="token operator">:</span> <span class="token punctuation">(</span>Boolean<span class="token punctuation">)</span> <span class="token operator">-&gt;</span> Unit<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">val</span> criticalModules <span class="token operator">=</span> <span class="token function">listOf</span><span class="token punctuation">(</span><span class="token string">"core"</span><span class="token punctuation">,</span> <span class="token string">"home"</span><span class="token punctuation">,</span> <span class="token string">"networking"</span><span class="token punctuation">)</span>
+        <span class="token keyword">val</span> countDownLatch <span class="token operator">=</span> <span class="token function">CountDownLatch</span><span class="token punctuation">(</span>criticalModules<span class="token punctuation">.</span>size<span class="token punctuation">)</span>
+        <span class="token keyword">val</span> success <span class="token operator">=</span> <span class="token function">AtomicBoolean</span><span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span>
+
+        <span class="token keyword">for</span> <span class="token punctuation">(</span>moduleName <span class="token keyword">in</span> criticalModules<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            loadingExecutor<span class="token punctuation">.</span><span class="token function">execute</span> <span class="token punctuation">{</span>
+                <span class="token keyword">try</span> <span class="token punctuation">{</span>
+                    <span class="token keyword">val</span> module <span class="token operator">=</span> <span class="token function">loadModule</span><span class="token punctuation">(</span>moduleName<span class="token punctuation">)</span>
+                    loadedModules<span class="token punctuation">[</span>moduleName<span class="token punctuation">]</span> <span class="token operator">=</span> module
+                <span class="token punctuation">}</span> <span class="token keyword">catch</span> <span class="token punctuation">(</span>e<span class="token operator">:</span> Exception<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+                    Log<span class="token punctuation">.</span><span class="token function">e</span><span class="token punctuation">(</span>TAG<span class="token punctuation">,</span> <span class="token string">"Failed to load module: <span class="token interpolation variable">$moduleName</span>"</span><span class="token punctuation">,</span> e<span class="token punctuation">)</span>
+                    success<span class="token punctuation">.</span><span class="token function">set</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">)</span>
+                <span class="token punctuation">}</span> <span class="token keyword">finally</span> <span class="token punctuation">{</span>
+                    countDownLatch<span class="token punctuation">.</span><span class="token function">countDown</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+                <span class="token punctuation">}</span>
+            <span class="token punctuation">}</span>
+        <span class="token punctuation">}</span>
+
+        <span class="token comment">// Wait for critical modules or timeout</span>
+        Thread <span class="token punctuation">{</span>
+            <span class="token keyword">try</span> <span class="token punctuation">{</span>
+                <span class="token keyword">val</span> allLoaded <span class="token operator">=</span> countDownLatch<span class="token punctuation">.</span><span class="token function">await</span><span class="token punctuation">(</span><span class="token number">5</span><span class="token punctuation">,</span> TimeUnit<span class="token punctuation">.</span>SECONDS<span class="token punctuation">)</span>
+                <span class="token function">callback</span><span class="token punctuation">(</span>allLoaded <span class="token operator">&amp;&amp;</span> success<span class="token punctuation">.</span><span class="token function">get</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+            <span class="token punctuation">}</span> <span class="token keyword">catch</span> <span class="token punctuation">(</span>e<span class="token operator">:</span> Exception<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+                Log<span class="token punctuation">.</span><span class="token function">e</span><span class="token punctuation">(</span>TAG<span class="token punctuation">,</span> <span class="token string">"Module loading interrupted"</span><span class="token punctuation">,</span> e<span class="token punctuation">)</span>
+                <span class="token function">callback</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">)</span>
+            <span class="token punctuation">}</span>
+        <span class="token punctuation">}</span><span class="token punctuation">.</span><span class="token function">start</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">fun</span> <span class="token function">loadNonCriticalModules</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">val</span> nonCriticalModules <span class="token operator">=</span> <span class="token function">listOf</span><span class="token punctuation">(</span><span class="token string">"settings"</span><span class="token punctuation">,</span> <span class="token string">"history"</span><span class="token punctuation">,</span> <span class="token string">"support"</span><span class="token punctuation">)</span>
+
+        <span class="token keyword">for</span> <span class="token punctuation">(</span>moduleName <span class="token keyword">in</span> nonCriticalModules<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            loadingExecutor<span class="token punctuation">.</span><span class="token function">execute</span> <span class="token punctuation">{</span>
+                <span class="token keyword">try</span> <span class="token punctuation">{</span>
+                    <span class="token keyword">val</span> module <span class="token operator">=</span> <span class="token function">loadModule</span><span class="token punctuation">(</span>moduleName<span class="token punctuation">)</span>
+                    loadedModules<span class="token punctuation">[</span>moduleName<span class="token punctuation">]</span> <span class="token operator">=</span> module
+                <span class="token punctuation">}</span> <span class="token keyword">catch</span> <span class="token punctuation">(</span>e<span class="token operator">:</span> Exception<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+                    Log<span class="token punctuation">.</span><span class="token function">e</span><span class="token punctuation">(</span>TAG<span class="token punctuation">,</span> <span class="token string">"Failed to load non-critical module: <span class="token interpolation variable">$moduleName</span>"</span><span class="token punctuation">,</span> e<span class="token punctuation">)</span>
+                    <span class="token comment">// Non-critical failure can be logged but doesn't impact startup</span>
+                <span class="token punctuation">}</span>
+            <span class="token punctuation">}</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">private</span> <span class="token keyword">fun</span> <span class="token function">loadModule</span><span class="token punctuation">(</span>name<span class="token operator">:</span> String<span class="token punctuation">)</span><span class="token operator">:</span> Module <span class="token punctuation">{</span>
+        <span class="token comment">// Implementation of module loading logic</span>
+        <span class="token keyword">return</span> <span class="token function">Module</span><span class="token punctuation">(</span>name<span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">companion</span> <span class="token keyword">object</span> <span class="token punctuation">{</span>
+        <span class="token keyword">private</span> <span class="token keyword">const</span> <span class="token keyword">val</span> TAG <span class="token operator">=</span> <span class="token string">"ModuleManager"</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<ol start="3">
+<li><strong>Asset Preloading Strategy</strong>: Implement intelligent asset preloading based on startup critical path.</li>
+</ol>
+<pre class=" language-kotlin"><code class="prism  language-kotlin"><span class="token comment">// Asset manager with preloading capabilities</span>
+<span class="token keyword">class</span> <span class="token function">AssetManager</span><span class="token punctuation">(</span><span class="token keyword">private</span> <span class="token keyword">val</span> context<span class="token operator">:</span> Context<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">private</span> <span class="token keyword">val</span> imageCache <span class="token operator">=</span> LruCache<span class="token operator">&lt;</span>String<span class="token punctuation">,</span> Bitmap<span class="token operator">&gt;</span><span class="token punctuation">(</span><span class="token function">calculateCacheSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+    <span class="token keyword">private</span> <span class="token keyword">val</span> preloadExecutor <span class="token operator">=</span> Executors<span class="token punctuation">.</span><span class="token function">newFixedThreadPool</span><span class="token punctuation">(</span><span class="token number">2</span><span class="token punctuation">)</span>
+
+    <span class="token keyword">fun</span> <span class="token function">preloadCriticalAssets</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">val</span> criticalAssets <span class="token operator">=</span> <span class="token function">listOf</span><span class="token punctuation">(</span>
+            <span class="token string">"logo.png"</span><span class="token punctuation">,</span>
+            <span class="token string">"home_icons.png"</span><span class="token punctuation">,</span>
+            <span class="token string">"nav_background.png"</span>
+        <span class="token punctuation">)</span>
+
+        <span class="token keyword">for</span> <span class="token punctuation">(</span>asset <span class="token keyword">in</span> criticalAssets<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            preloadExecutor<span class="token punctuation">.</span><span class="token function">execute</span> <span class="token punctuation">{</span>
+                <span class="token keyword">try</span> <span class="token punctuation">{</span>
+                    <span class="token keyword">val</span> bitmap <span class="token operator">=</span> <span class="token function">loadBitmapFromAsset</span><span class="token punctuation">(</span>asset<span class="token punctuation">)</span>
+                    imageCache<span class="token punctuation">.</span><span class="token function">put</span><span class="token punctuation">(</span>asset<span class="token punctuation">,</span> bitmap<span class="token punctuation">)</span>
+                <span class="token punctuation">}</span> <span class="token keyword">catch</span> <span class="token punctuation">(</span>e<span class="token operator">:</span> Exception<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+                    Log<span class="token punctuation">.</span><span class="token function">e</span><span class="token punctuation">(</span>TAG<span class="token punctuation">,</span> <span class="token string">"Failed to preload asset: <span class="token interpolation variable">$asset</span>"</span><span class="token punctuation">,</span> e<span class="token punctuation">)</span>
+                <span class="token punctuation">}</span>
+            <span class="token punctuation">}</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">fun</span> <span class="token function">preloadNonCriticalAssets</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">val</span> nonCriticalAssets <span class="token operator">=</span> <span class="token function">listOf</span><span class="token punctuation">(</span>
+            <span class="token string">"settings_icons.png"</span><span class="token punctuation">,</span>
+            <span class="token string">"profile_default.png"</span><span class="token punctuation">,</span>
+            <span class="token string">"currency_icons.png"</span>
+        <span class="token punctuation">)</span>
+
+        <span class="token keyword">for</span> <span class="token punctuation">(</span>asset <span class="token keyword">in</span> nonCriticalAssets<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            preloadExecutor<span class="token punctuation">.</span><span class="token function">execute</span> <span class="token punctuation">{</span>
+                <span class="token keyword">try</span> <span class="token punctuation">{</span>
+                    <span class="token keyword">val</span> bitmap <span class="token operator">=</span> <span class="token function">loadBitmapFromAsset</span><span class="token punctuation">(</span>asset<span class="token punctuation">)</span>
+                    imageCache<span class="token punctuation">.</span><span class="token function">put</span><span class="token punctuation">(</span>asset<span class="token punctuation">,</span> bitmap<span class="token punctuation">)</span>
+                <span class="token punctuation">}</span> <span class="token keyword">catch</span> <span class="token punctuation">(</span>e<span class="token operator">:</span> Exception<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+                    Log<span class="token punctuation">.</span><span class="token function">e</span><span class="token punctuation">(</span>TAG<span class="token punctuation">,</span> <span class="token string">"Failed to preload non-critical asset: <span class="token interpolation variable">$asset</span>"</span><span class="token punctuation">,</span> e<span class="token punctuation">)</span>
+                <span class="token punctuation">}</span>
+            <span class="token punctuation">}</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">private</span> <span class="token keyword">fun</span> <span class="token function">loadBitmapFromAsset</span><span class="token punctuation">(</span>filename<span class="token operator">:</span> String<span class="token punctuation">)</span><span class="token operator">:</span> Bitmap <span class="token punctuation">{</span>
+        context<span class="token punctuation">.</span>assets<span class="token punctuation">.</span><span class="token function">open</span><span class="token punctuation">(</span>filename<span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">use</span> <span class="token punctuation">{</span> inputStream <span class="token operator">-&gt;</span>
+            <span class="token keyword">return</span> BitmapFactory<span class="token punctuation">.</span><span class="token function">decodeStream</span><span class="token punctuation">(</span>inputStream<span class="token punctuation">)</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">private</span> <span class="token keyword">fun</span> <span class="token function">calculateCacheSize</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">:</span> Int <span class="token punctuation">{</span>
+        <span class="token keyword">val</span> maxMemory <span class="token operator">=</span> <span class="token punctuation">(</span>Runtime<span class="token punctuation">.</span><span class="token function">getRuntime</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">maxMemory</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">/</span> <span class="token number">1024</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">toInt</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+        <span class="token keyword">return</span> maxMemory <span class="token operator">/</span> <span class="token number">8</span>  <span class="token comment">// Use 1/8th of available memory for cache</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">companion</span> <span class="token keyword">object</span> <span class="token punctuation">{</span>
+        <span class="token keyword">private</span> <span class="token keyword">const</span> <span class="token keyword">val</span> TAG <span class="token operator">=</span> <span class="token string">"AssetManager"</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h2 id="conclusion">6. Conclusion</h2>
+<p>This performance analysis of the Moonpay apk has identified significant optimization opportunities across multiple user flows. The most critical issues are concentrated in the cryptocurrency purchase flow, where severe performance degradation directly impacts the core value proposition of the application.</p>
+<p>The proposed optimizations focus on moving critical operations to native code, implementing proper asynchronous patterns, and adding comprehensive performance monitoring. By prioritizing the transaction flow, followed by startup experience and settings, the implementation plan addresses issues in order of business impact.</p>
+<p>The significant performance disparity between different flows (13/100 vs 69/100) suggests that applying consistent optimization techniques across the application can yield substantial improvements. The recommended architectural changes will not only enhance current performance but also provide a foundation for sustainable performance as the application evolves.</p>
+<p>By implementing these recommendations, The company can significantly improve user experience, reduce transaction abandonment rates, extend battery life, and increase overall app reliability. These improvements will directly contribute to higher user satisfaction and increased transaction completion rates, supporting the core business objectives of the platform.</p>
+</div>
+</body>
+
+</html>
